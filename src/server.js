@@ -115,6 +115,12 @@ app.use('/api/posts', authenticateJWT, postRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/schedules', authenticateJWT, scheduleRoutes);
 
+// Google Search Console site verification (HTML file method)
+// Serves: https://<your-domain>/googlef89e836dbb5c82fa.html
+app.get('/googlef89e836dbb5c82fa.html', (req, res) => {
+  res.type('text/html').send('google-site-verification: googlef89e836dbb5c82fa.html');
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date() });
