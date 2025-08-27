@@ -50,7 +50,7 @@ router.get('/linkedin/callback', async (req, res, next) => {
     const { state, nonce, codeVerifier } = req.session.oidc || {};
     const enablePkce = String(process.env.OIDC_ENABLE_PKCE || 'true').toLowerCase() !== 'false';
     if (!state || !nonce || (enablePkce && !codeVerifier)) {
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3001'}/login?error=session_expired`);
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=session_expired`);
     }
     console.log('step 3 done');
     // Avoid logging the whole client (may include secrets)

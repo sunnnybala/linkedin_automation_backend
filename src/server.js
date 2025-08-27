@@ -19,8 +19,28 @@ const app = express();
 
 // Middleware
 app.use(helmet());
+// Flexible CORS: allow single FRONTEND_URL, multiple FRONTEND_URLS, and optional Vercel preview domains
+const allowedOriginsConfig = (() => {
+  const single = (process.env.FRONTEND_URL || '').trim();
+  const many = (process.env.FRONTEND_URLS || '').split(',').map(s => s.trim()).filter(Boolean);
+  const defaults = process.env.NODE_ENV === 'development' ? ['http://localhost:5173'] : [];
+  const allowVercel = String(process.env.CORS_ALLOW_VERCEL_PREVIEWS || 'true').toLowerCase() !== 'false';
+  return { list: [...many, ...(single ? [single] : []), ...defaults], allowVercel };
+})();
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    try {
+      if (!origin) return callback(null, true);
+      if (allowedOriginsConfig.list.includes(origin)) return callback(null, true);
+      if (allowedOriginsConfig.allowVercel) {
+        const hostname = new URL(origin).hostname;
+        if (/\.vercel\.app$/.test(hostname)) return callback(null, true);
+      }
+      return callback(new Error('Not allowed by CORS'));
+    } catch (_) {
+      return callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 app.use(express.json());
@@ -141,8 +161,10 @@ const startServer = async () => {
     });
   });
 
-  // Start scheduler loop
-  startScheduler();
+  // Start scheduler loop if enabled
+  if (String(process.env.ENABLE_SCHEDULER || 'true').toLowerCase() !== 'false') {
+    startScheduler();
+  }
 };
 
 // Start the server
