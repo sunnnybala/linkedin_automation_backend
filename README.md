@@ -27,7 +27,7 @@ This is the backend service for the LinkedIn Post Automation application. It pro
    ```
 3. Create a `.env` file based on `.env.example` and fill in your configuration
 4. Set up your LinkedIn application at [LinkedIn Developer Portal](https://www.linkedin.com/developers/)
-   - Add `http://localhost:3000/api/auth/linkedin/callback` as an authorized redirect URL
+   - Add `http://localhost:3000/api/check/linkedin/callback` as an authorized redirect URL
    - Enable OpenID Connect and request scopes:
      - `openid`
      - `profile`, `email`
@@ -66,9 +66,9 @@ pm2 start src/server.js --name linkedin-backend
 
 ### Authentication (OpenID Connect)
 
-- `GET /api/auth/linkedin` - Initiate LinkedIn OIDC Authorization Code flow with PKCE
-- `GET /api/auth/me` - Get current user (requires app JWT)
-- `POST /api/auth/logout` - Logout (client-side token removal)
+- `GET /api/check/linkedin` - Initiate LinkedIn OIDC Authorization Code flow with PKCE
+- `GET /api/check/me` - Get current user (requires app JWT)
+- `POST /api/check/logout` - Logout (client-side token removal)
 
 ### Posts
 
@@ -89,7 +89,7 @@ pm2 start src/server.js --name linkedin-backend
 Required:
 - `LINKEDIN_CLIENT_ID`
 - `LINKEDIN_CLIENT_SECRET`
-- `LINKEDIN_CALLBACK_URL` (e.g., `http://localhost:3000/api/auth/linkedin/callback`)
+- `LINKEDIN_CALLBACK_URL` (e.g., `http://localhost:3000/api/check/linkedin/callback`)
 - `JWT_SECRET`
  - `OIDC_ISSUER` (e.g., your LinkedIn OIDC issuer)
  - `OIDC_AUTHORIZATION_ENDPOINT`
