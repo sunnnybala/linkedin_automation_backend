@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { Post, User } = require('../models');
+const { deductCreditsOrThrow, COST_PER_POST_CREDITS } = require('../services/credits');
+const { sendCreditsDepletedEmail } = require('../services/email');
 const axios = require('axios');
 
 // Create a new post
@@ -8,6 +10,15 @@ router.post('/', async (req, res, next) => {
   try {
     const { content, scheduledAt } = req.body;
     
+    // Deduct credits for immediate publish (no schedule)
+    if (!scheduledAt) {
+      await deductCreditsOrThrow(req.user.id, COST_PER_POST_CREDITS, 'POST', undefined, async (user) => {
+        if (user.email) {
+          try { await sendCreditsDepletedEmail(user.email, user.name || 'there'); } catch (_) {}
+        }
+      });
+    }
+
     const post = await Post.create({
       content,
       userId: req.user.id,
@@ -101,6 +112,11 @@ router.put('/:id', async (req, res, next) => {
 
     // If post is being published now, trigger n8n workflow
     if (status === 'published') {
+      await deductCreditsOrThrow(req.user.id, COST_PER_POST_CREDITS, 'POST', String(post.id), async (user) => {
+        if (user.email) {
+          try { await sendCreditsDepletedEmail(user.email, user.name || 'there'); } catch (_) {}
+        }
+      });
       const user = await User.findByPk(req.user.id);
       await triggerN8nWorkflow(post, user);
     }
@@ -152,6 +168,11 @@ router.post('/:id/publish', async (req, res, next) => {
     await post.save();
 
     // Trigger n8n workflow
+    await deductCreditsOrThrow(req.user.id, COST_PER_POST_CREDITS, 'POST', String(post.id), async (user) => {
+      if (user.email) {
+        try { await sendCreditsDepletedEmail(user.email, user.name || 'there'); } catch (_) {}
+      }
+    });
     const user = await User.findByPk(req.user.id);
     await triggerN8nWorkflow(post, user);
 

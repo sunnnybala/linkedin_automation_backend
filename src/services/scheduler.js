@@ -1,6 +1,8 @@
 const axios = require('axios');
 const crypto = require('crypto');
 const { Schedule, ScheduleRun, User } = require('../models');
+const { deductCreditsOrThrow, COST_PER_POST_CREDITS } = require('./credits');
+const { sendCreditsDepletedEmail } = require('./email');
 
 function computeNextRun(current, cadence) {
   const d = new Date(current.getTime());
@@ -62,7 +64,7 @@ async function runDueSchedules() {
     where: { isActive: true },
     order: [['nextRunAt', 'ASC']]
   });
-  console.log('[SCHEDULER][SCAN] found:', due.length);
+  // console.log('[SCHEDULER][SCAN] found:', due.length);
   for (const schedule of due) {
     if (schedule.nextRunAt > now) continue;
     console.log('[SCHEDULER][DUE] scheduleId:', schedule.id, 'nextRunAt:', schedule.nextRunAt);
@@ -113,6 +115,9 @@ async function runScheduleNow(scheduleId, userId) {
   const run = await ScheduleRun.create({ scheduleId: schedule.id, status: 'pending' });
   const start = Date.now();
   try {
+    await deductCreditsOrThrow(user.id, COST_PER_POST_CREDITS, 'SCHEDULED_RUN', String(schedule.id), async (u) => {
+      if (u.email) { try { await sendCreditsDepletedEmail(u.email, u.name || 'there'); } catch (_) {} }
+    });
     const resp = await triggerN8n(schedule, user);
     run.status = resp.ok ? 'success' : 'failed';
     run.response = resp.data;

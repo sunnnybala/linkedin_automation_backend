@@ -11,6 +11,7 @@ const { initOidcClient } = require('./config/oidc');
 // Import routes
 const authRoutes = require('./routes/auth.routes');
 const postRoutes = require('./routes/post.routes');
+const creditsRoutes = require('./routes/credits.routes');
 const webhookRoutes = require('./routes/webhook.routes');
 const scheduleRoutes = require('./routes/schedule.routes');
 const { startScheduler } = require('./services/scheduler');
@@ -43,6 +44,8 @@ app.use(cors({
   },
   credentials: true
 }));
+// Ensure Razorpay webhook receives raw body for HMAC verification BEFORE JSON parsing
+app.use('/api/webhooks/razorpay', express.raw({ type: '*/*' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -112,6 +115,7 @@ const connectDB = async () => {
 // Routes
 app.use('/api/check', authRoutes);
 app.use('/api/posts', authenticateJWT, postRoutes);
+app.use('/api/credits', authenticateJWT, creditsRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/schedules', authenticateJWT, scheduleRoutes);
 

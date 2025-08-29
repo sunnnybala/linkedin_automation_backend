@@ -39,6 +39,11 @@ const User = sequelize.define('User', {
   lastLogin: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW
+  },
+  creditBalance: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 5
   }
 }, {
   timestamps: true,

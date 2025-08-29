@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { Post } = require('../models');
+const { Post, Payment, User } = require('../models');
+const { addCredits } = require('../services/credits');
 
 // Middleware to verify webhook secret (timing-safe)
 const crypto = require('crypto');
@@ -83,3 +84,65 @@ router.get('/health', (req, res) => {
 });
 
 module.exports = router;
+// Razorpay webhook
+router.post('/razorpay', express.raw({ type: '*/*' }), async (req, res, next) => {
+  try {
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    if (!secret) return res.status(500).json({ error: 'Server misconfigured' });
+
+    const crypto = require('crypto');
+    const signature = req.headers['x-razorpay-signature'];
+    if (typeof signature !== 'string') return res.status(401).json({ error: 'Unauthorized' });
+
+    const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
+    const expected = crypto.createHmac('sha256', secret).update(raw).digest('hex');
+    const a = Buffer.from(signature, 'utf8');
+    const b = Buffer.from(expected, 'utf8');
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      console.warn('[RZP][WEBHOOK][SIG_MISMATCH]');
+      return res.status(401).json({ error: 'Invalid signature' });
+    }
+
+    const payload = JSON.parse(raw.toString('utf8'));
+    const event = payload?.event;
+    const entity = payload?.payload?.payment?.entity || payload?.payload?.order?.entity;
+    const orderId = entity?.order_id || payload?.payload?.order?.entity?.id;
+    const paymentId = entity?.id;
+    const amountPaise = entity?.amount || payload?.payload?.order?.entity?.amount;
+    console.log('[RZP][WEBHOOK][RX]', { event, orderId, paymentId, amountPaise });
+    if (!orderId || !amountPaise) return res.status(400).json({ error: 'Invalid payload' });
+
+    let payment = await Payment.findOne({ where: { gatewayRequestId: orderId } });
+    if (!payment && paymentId) payment = await Payment.findOne({ where: { gatewayPaymentId: paymentId } });
+    if (!payment) return res.status(404).json({ error: 'Payment record not found' });
+
+    if (payment.status === 'success') {
+      console.log('[RZP][WEBHOOK][IDEMPOTENT]', { orderId, paymentId });
+      return res.json({ ok: true });
+    }
+
+    payment.rawPayload = payload;
+    payment.webhookVerifiedAt = new Date();
+    if (paymentId) payment.gatewayPaymentId = paymentId;
+
+    if (event === 'payment.captured' || event === 'order.paid' || entity?.status === 'captured' || entity?.status === 'paid') {
+      payment.status = 'success';
+      const credits = Math.floor((amountPaise || payment.amountInPaise) / 1000);
+      payment.creditsGranted = credits;
+      await payment.save();
+      await addCredits(payment.userId, credits, 'PURCHASE', payment.gatewayPaymentId || paymentId || orderId, `Razorpay ₹${((amountPaise||payment.amountInPaise)/100).toFixed(2)}`);
+      console.log('[RZP][WEBHOOK][CREDITED]', { userId: payment.userId, credits, orderId, paymentId });
+    } else if (event && /failed|refunded/.test(event)) {
+      payment.status = 'failed';
+      await payment.save();
+      console.warn('[RZP][WEBHOOK][FAILED]', { orderId, paymentId, event });
+    } else {
+      await payment.save();
+    }
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[RZP][WEBHOOK][ERR]', err.message);
+    next(err);
+  }
+});
