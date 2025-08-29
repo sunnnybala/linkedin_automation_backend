@@ -52,7 +52,7 @@ async function triggerN8n(schedule, user) {
       'X-Webhook-Secret': process.env.N8N_WEBHOOK_SECRET,
       'X-Signature': signature
     },
-    timeout: 15000
+    timeout: 150000
   });
   return { ok: true, status: resp.status, data: resp.data };
 }
@@ -77,6 +77,7 @@ async function runDueSchedules() {
       run.status = resp.ok ? 'success' : 'failed';
       run.response = resp.data;
       run.durationMs = Date.now() - start;
+      console.log('[SCHEDULER][RUN][SUCCESS] scheduleId:', schedule.id, 'durationMs:', run.durationMs, 'response:', resp.data);
       await run.save();
     } catch (err) {
       run.status = 'failed';
