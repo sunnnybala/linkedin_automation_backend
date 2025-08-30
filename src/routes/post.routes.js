@@ -29,7 +29,9 @@ router.post('/', async (req, res, next) => {
 
     // If post is not scheduled, trigger n8n workflow immediately
     if (!scheduledAt) {
+      console.log('[POSTS][TRIGGER][START]', { postId: post.id, userId: req.user.id });
       await triggerN8nWorkflow(post, req.user);
+      console.log('[POSTS][TRIGGER][DONE]', { postId: post.id });
     }
 
     res.status(201).json(post);
@@ -118,7 +120,9 @@ router.put('/:id', async (req, res, next) => {
         }
       });
       const user = await User.findByPk(req.user.id);
+      console.log('[POSTS][TRIGGER][START]', { postId: post.id, userId: user.id });
       await triggerN8nWorkflow(post, user);
+      console.log('[POSTS][TRIGGER][DONE]', { postId: post.id });
     }
 
     res.json(post);
@@ -190,7 +194,7 @@ async function triggerN8nWorkflow(post, user) {
   }
 
   try {
-    const response = await axios.post(process.env.N8N_WEBHOOK_URL, {
+    const payload = {
       event: 'post.publish',
       post: {
         id: post.id,
@@ -205,14 +209,15 @@ async function triggerN8nWorkflow(post, user) {
         email: user.email,
         accessToken: user.accessToken
       }
-    }, {
+    };
+    console.log('[POSTS][TRIGGER][PAYLOAD]', payload);
+    const response = await axios.post(process.env.N8N_WEBHOOK_URL, payload, {
       headers: {
         'Content-Type': 'application/json',
         'X-Webhook-Secret': process.env.N8N_WEBHOOK_SECRET
       }
     });
-
-    console.log('n8n workflow triggered:', response.status);
+    console.log('[POSTS][TRIGGER][RESP]', { status: response.status, data: response.data });
   } catch (error) {
     console.error('Error triggering n8n workflow:', error.message);
     throw error;

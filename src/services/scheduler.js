@@ -58,7 +58,9 @@ async function triggerN8n(schedule, user) {
 }
 
 async function runDueSchedules() {
-  console.log('[SCHEDULER][RUN] running due schedules');
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[SCHEDULER][RUN] running due schedules');
+  }
   const now = new Date();
   const due = await Schedule.findAll({
     where: { isActive: true },
@@ -67,17 +69,24 @@ async function runDueSchedules() {
   // console.log('[SCHEDULER][SCAN] found:', due.length);
   for (const schedule of due) {
     if (schedule.nextRunAt > now) continue;
-    console.log('[SCHEDULER][DUE] scheduleId:', schedule.id, 'nextRunAt:', schedule.nextRunAt);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[SCHEDULER][DUE] scheduleId:', schedule.id, 'nextRunAt:', schedule.nextRunAt);
+    }
     const user = await User.findByPk(schedule.userId);
     if (!user) continue;
     const run = await ScheduleRun.create({ scheduleId: schedule.id, status: 'pending' });
     const start = Date.now();
     try {
+      console.log('[SCHEDULER][TRIGGER][START]', { scheduleId: schedule.id, userId: user.id });
+      // Charge on success via n8n webhook. No pre-deduction here.
       const resp = await triggerN8n(schedule, user);
+      console.log('[SCHEDULER][TRIGGER][RESP]', { status: resp.status, ok: resp.ok, data: resp.data });
       run.status = resp.ok ? 'success' : 'failed';
       run.response = resp.data;
       run.durationMs = Date.now() - start;
-      console.log('[SCHEDULER][RUN][SUCCESS] scheduleId:', schedule.id, 'durationMs:', run.durationMs, 'response:', resp.data);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[SCHEDULER][RUN][SUCCESS] scheduleId:', schedule.id, 'durationMs:', run.durationMs);
+      }
       await run.save();
     } catch (err) {
       run.status = 'failed';
@@ -89,7 +98,7 @@ async function runDueSchedules() {
     schedule.lastRunAt = new Date();
     schedule.nextRunAt = computeNextRun(schedule.nextRunAt || new Date(), schedule.cadence);
     await schedule.save();
-    console.log('[SCHEDULER][RESCHEDULE] scheduleId:', schedule.id, 'nextRunAt:', schedule.nextRunAt);
+    console.log('[SCHEDULER][RESCHEDULE]', { scheduleId: schedule.id, nextRunAt: schedule.nextRunAt });
   }
 }
 
@@ -116,10 +125,10 @@ async function runScheduleNow(scheduleId, userId) {
   const run = await ScheduleRun.create({ scheduleId: schedule.id, status: 'pending' });
   const start = Date.now();
   try {
-    await deductCreditsOrThrow(user.id, COST_PER_POST_CREDITS, 'SCHEDULED_RUN', String(schedule.id), async (u) => {
-      if (u.email) { try { await sendCreditsDepletedEmail(u.email, u.name || 'there'); } catch (_) {} }
-    });
+    console.log('[RUN_NOW][TRIGGER][START]', { scheduleId: schedule.id, userId: user.id });
+    // Charge on success via n8n webhook; no pre-deduction here
     const resp = await triggerN8n(schedule, user);
+    console.log('[RUN_NOW][TRIGGER][RESP]', { status: resp.status, ok: resp.ok, data: resp.data });
     run.status = resp.ok ? 'success' : 'failed';
     run.response = resp.data;
     run.durationMs = Date.now() - start;

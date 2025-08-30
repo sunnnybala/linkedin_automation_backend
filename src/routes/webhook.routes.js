@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { Post, Payment, User } = require('../models');
-const { addCredits } = require('../services/credits');
+const { Post, Payment, User, CreditLedger } = require('../models');
+const { addCredits, deductCreditsOrThrow, COST_PER_POST_CREDITS } = require('../services/credits');
 
 // Middleware to verify webhook secret (timing-safe)
 const crypto = require('crypto');
@@ -29,6 +29,7 @@ const verifyWebhook = (req, res, next) => {
 // Webhook endpoint for n8n callbacks
 router.post('/n8n', verifyWebhook, async (req, res, next) => {
   try {
+    console.log('[WEBHOOK][N8N][RX]', { headers: req.headers, body: req.body });
     const { event, postId, status, error, linkedInPostId } = req.body;
     
     if (!event || !postId) {
@@ -47,6 +48,16 @@ router.post('/n8n', verifyWebhook, async (req, res, next) => {
         post.status = 'published';
         post.publishedAt = new Date();
         post.linkedInPostId = linkedInPostId || null;
+        // Charge credits on success if not already deducted
+        try {
+          const user = await User.findByPk(post.userId);
+          if (user) {
+            await deductCreditsOrThrow(user.id, COST_PER_POST_CREDITS, 'POST', String(post.id));
+            console.log('[WEBHOOK][CHARGED]', { userId: user.id, postId: post.id });
+          }
+        } catch (e) {
+          console.warn('[WEBHOOK][CHARGE_ON_SUCCESS][ERR]', e.message);
+        }
         break;
         
       case 'post.failed':
@@ -56,6 +67,8 @@ router.post('/n8n', verifyWebhook, async (req, res, next) => {
           error: error || 'Unknown error',
           lastAttempt: new Date()
         };
+        // If any previous deduction happened by mistake, we could refund here.
+        // Policy: currently we only charge on success, so no refund needed.
         break;
         
       case 'post.updated':
@@ -71,9 +84,10 @@ router.post('/n8n', verifyWebhook, async (req, res, next) => {
     }
 
     await post.save();
+    console.log('[WEBHOOK][N8N][OK]', { postId: post.id, status: post.status });
     res.json({ success: true, post });
   } catch (error) {
-    console.error('Webhook error:', error);
+    console.error('[WEBHOOK][N8N][ERR]', error);
     next(error);
   }
 });
@@ -83,7 +97,6 @@ router.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date() });
 });
 
-module.exports = router;
 // Razorpay webhook
 router.post('/razorpay', express.raw({ type: '*/*' }), async (req, res, next) => {
   try {
@@ -109,7 +122,9 @@ router.post('/razorpay', express.raw({ type: '*/*' }), async (req, res, next) =>
     const orderId = entity?.order_id || payload?.payload?.order?.entity?.id;
     const paymentId = entity?.id;
     const amountPaise = entity?.amount || payload?.payload?.order?.entity?.amount;
-    console.log('[RZP][WEBHOOK][RX]', { event, orderId, paymentId, amountPaise });
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[RZP][WEBHOOK][RX]', { event, orderId, paymentId, amountPaise });
+    }
     if (!orderId || !amountPaise) return res.status(400).json({ error: 'Invalid payload' });
 
     let payment = await Payment.findOne({ where: { gatewayRequestId: orderId } });
@@ -117,7 +132,9 @@ router.post('/razorpay', express.raw({ type: '*/*' }), async (req, res, next) =>
     if (!payment) return res.status(404).json({ error: 'Payment record not found' });
 
     if (payment.status === 'success') {
-      console.log('[RZP][WEBHOOK][IDEMPOTENT]', { orderId, paymentId });
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[RZP][WEBHOOK][IDEMPOTENT]', { orderId, paymentId });
+      }
       return res.json({ ok: true });
     }
 
@@ -131,7 +148,9 @@ router.post('/razorpay', express.raw({ type: '*/*' }), async (req, res, next) =>
       payment.creditsGranted = credits;
       await payment.save();
       await addCredits(payment.userId, credits, 'PURCHASE', payment.gatewayPaymentId || paymentId || orderId, `Razorpay ₹${((amountPaise||payment.amountInPaise)/100).toFixed(2)}`);
-      console.log('[RZP][WEBHOOK][CREDITED]', { userId: payment.userId, credits, orderId, paymentId });
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[RZP][WEBHOOK][CREDITED]', { userId: payment.userId, credits, orderId, paymentId });
+      }
     } else if (event && /failed|refunded/.test(event)) {
       payment.status = 'failed';
       await payment.save();
@@ -146,3 +165,7 @@ router.post('/razorpay', express.raw({ type: '*/*' }), async (req, res, next) =>
     next(err);
   }
 });
+
+// n8n posts webhook
+// Move export to the end after all routes are declared
+module.exports = router;

@@ -43,22 +43,23 @@ router.get('/linkedin', async (req, res, next) => {
 // LinkedIn OIDC callback
 router.get('/linkedin/callback', async (req, res, next) => {
   try {
-    console.log('step 1 done');
+    if (process.env.NODE_ENV === 'development') console.log('step 1 done');
     const client = getClient();
     const params = client.callbackParams(req);
-    console.log('step 2 done');
+    if (process.env.NODE_ENV === 'development') console.log('step 2 done');
     const { state, nonce, codeVerifier } = req.session.oidc || {};
     const enablePkce = String(process.env.OIDC_ENABLE_PKCE || 'true').toLowerCase() !== 'false';
     if (!state || !nonce || (enablePkce && !codeVerifier)) {
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=session_expired`);
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/?error=session_expired`);
     }
-    console.log('step 3 done');
+    if (process.env.NODE_ENV === 'development') console.log('step 3 done');
     // Avoid logging the whole client (may include secrets)
-    console.log('process.env.LINKEDIN_CALLBACK_URL', process.env.LINKEDIN_CALLBACK_URL);
-    console.log('params', params);
-    console.log('state', state);
-    console.log('nonce', nonce);
-    console.log('codeVerifier', codeVerifier);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('process.env.LINKEDIN_CALLBACK_URL', process.env.LINKEDIN_CALLBACK_URL);
+      console.log('state', state);
+      console.log('nonce', nonce);
+      console.log('pkce?', Boolean(codeVerifier));
+    }
     const checks = { state, nonce };
     if (enablePkce && codeVerifier) {
       checks.code_verifier = codeVerifier;
@@ -67,7 +68,7 @@ router.get('/linkedin/callback', async (req, res, next) => {
     try {
       tokenSet = await client.callback(process.env.LINKEDIN_CALLBACK_URL, params, checks);
     } catch (err) {
-      console.log('error in callback doing curl', err);
+      if (process.env.NODE_ENV === 'development') console.log('error in callback doing curl', err.message);
       // Fallback: do direct token exchange like working curl in case of client auth quirks
       const isInvalidClient = err?.error === 'invalid_client' || err?.message?.includes('invalid_client');
       if (!isInvalidClient) throw err;
@@ -102,11 +103,9 @@ router.get('/linkedin/callback', async (req, res, next) => {
         }
       };
     }
-    console.log('step 4 done');
+    if (process.env.NODE_ENV === 'development') console.log('step 4 done');
     let claims = tokenSet.claims?.() || {};
-    console.log('step 5 done');
-    console.log('claims');
-    console.log(claims);
+    if (process.env.NODE_ENV === 'development') console.log('step 5 done');
     // When fallback path was used, we may not have claims; use userinfo
     if ((!claims || !claims.sub) && process.env.OIDC_USERINFO_ENDPOINT) {
       try {
@@ -121,23 +120,16 @@ router.get('/linkedin/callback', async (req, res, next) => {
         // ignore userinfo failures; proceed with minimal info
       }
     }
-    console.log('claims 2');
-    console.log(claims);
-    console.log('step 6 done');
+    if (process.env.NODE_ENV === 'development') console.log('step 6 done');
     const sub = claims.sub;
     const name = claims.name || [claims.given_name, claims.family_name].filter(Boolean).join(' ') || 'LinkedIn User';
     const email = typeof claims.email === 'string' && (claims.email_verified === true || typeof claims.email_verified === 'undefined') ? claims.email : null;
     const picture = claims.picture || null;
-    console.log('email', email);
-    console.log('name', name);
-    console.log('picture', picture);
-    console.log('sub', sub);
-    console.log('step 7 done');
+    if (process.env.NODE_ENV === 'development') console.log('step 7 done');
     let user = await User.findOne({ where: { linkedinId: sub } });
-    console.log('user', user);
-    console.log('step 8 done');
+    if (process.env.NODE_ENV === 'development') console.log('step 8 done');
     if (!user) {
-      console.log('step 9 done');
+      if (process.env.NODE_ENV === 'development') console.log('step 9 done');
       // Try by openidSub if field exists later; for now reuse linkedinId field
       user = await User.create({
         linkedinId: sub,
@@ -148,34 +140,30 @@ router.get('/linkedin/callback', async (req, res, next) => {
         profilePicture: picture
       });
     } else {
-      console.log('step 10 done');
+      if (process.env.NODE_ENV === 'development') console.log('step 10 done');
       user.accessToken = tokenSet.access_token;
       user.refreshToken = tokenSet.refresh_token || null;
       await user.save();
     }
-    console.log('step 11 done');
+    if (process.env.NODE_ENV === 'development') console.log('step 11 done');
     req.session.oidc = null;
-    console.log('step 12 done');
+    if (process.env.NODE_ENV === 'development') console.log('step 12 done');
     const appToken = generateToken(user);
-    console.log('step 13 done');
+    if (process.env.NODE_ENV === 'development') console.log('step 13 done');
     res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/auth/callback?token=${appToken}`);
-    console.log('step 14 done');
+    if (process.env.NODE_ENV === 'development') console.log('step 14 done');
   } catch (e) {
     console.error('OIDC callback error:', e);
-    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=auth_failed`);
+    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/?error=auth_failed`);
   }
 });
 
 // Get current user
-router.get('/me', async (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) {
-      return res.status(401).json({ error: 'No token provided' });
-    }
+const { authenticateJWT } = require('../middleware/auth');
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findByPk(decoded.userId, {
+router.get('/me', authenticateJWT, async (req, res, next) => {
+  try {
+    const user = await User.findByPk(req.user.id, {
       attributes: { exclude: ['accessToken', 'refreshToken', 'createdAt', 'updatedAt'] }
     });
 
@@ -186,9 +174,6 @@ router.get('/me', async (req, res, next) => {
     res.json(user);
   } catch (error) {
     console.error('Get current user error:', error);
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ error: 'Invalid token' });
-    }
     next(error);
   }
 });

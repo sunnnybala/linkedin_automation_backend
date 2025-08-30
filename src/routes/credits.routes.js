@@ -24,7 +24,9 @@ router.post('/order', async (req, res, next) => {
     }
 
     const receipt = `user_${req.user.id}_${Date.now()}`;
-    console.log('[RZP][ORDER][INIT]', { userId: req.user.id, amountPaise, credits, receipt });
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[RZP][ORDER][INIT]', { userId: req.user.id, amountPaise, credits, receipt });
+    }
     const order = await createOrder({ amountInPaise: amountPaise, receipt, notes: { userId: String(req.user.id), credits: String(credits) } });
 
     await Payment.create({
@@ -36,7 +38,9 @@ router.post('/order', async (req, res, next) => {
       creditsGranted: 0,
       currency: 'INR'
     });
-    console.log('[RZP][ORDER][RECORDED]', { orderId: order.id, userId: req.user.id, amountPaise });
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[RZP][ORDER][RECORDED]', { orderId: order.id, userId: req.user.id, amountPaise });
+    }
     return res.json({ orderId: order.id, amount: order.amount, currency: order.currency, keyId: process.env.RAZORPAY_KEY_ID });
   } catch (err) {
     console.error('[RZP][ORDER][ERR]', err.message);

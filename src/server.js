@@ -45,7 +45,7 @@ app.use(cors({
   credentials: true
 }));
 // Ensure Razorpay webhook receives raw body for HMAC verification BEFORE JSON parsing
-app.use('/api/webhooks/razorpay', express.raw({ type: '*/*' }));
+// Leave route-level raw body parsing in webhook.routes.js; remove global duplicate to avoid confusion
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -127,20 +127,19 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date() });
 });
 
-// Error handling middleware
+// Consolidated error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({
-    error: 'Something went wrong!',
-    message: process.env.NODE_ENV === 'development' ? err.message : undefined
-  });
-});
-app.use((err, req, res, next) => {
-  console.error('Auth error:', err);
-  if (err.oauthError) {
+  const isDev = process.env.NODE_ENV === 'development';
+  if (isDev) console.error(err.stack || err);
+  if (err && err.oauthError && isDev) {
     console.error('OAuth response:', err.oauthError.data?.toString?.() || err.oauthError.data);
   }
-  next(err);
+  const status = err.status || 500;
+  res.status(status).json({
+    error: err.message || 'Something went wrong!',
+    code: err.code,
+    ...(isDev ? { stack: err.stack } : {})
+  });
 });
 // 404 handler
 app.use((req, res) => {
