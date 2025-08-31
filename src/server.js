@@ -124,6 +124,7 @@ app.use('/api/schedules', authenticateJWT, scheduleRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
+  console.log('[HEALTH][CHECK]');
   res.status(200).json({ status: 'ok', timestamp: new Date() });
 });
 
