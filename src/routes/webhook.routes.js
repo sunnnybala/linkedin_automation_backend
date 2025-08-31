@@ -89,11 +89,11 @@ router.get('/health', (req, res) => {
 });
 
 // Razorpay webhook
-router.post('/razorpay', express.raw({ type: '*/*' }), async (req, res, next) => {
+router.post('/razorpay', async (req, res, next) => {
   try {
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
     if (!secret) return res.status(500).json({ error: 'Server misconfigured' });
-
+    console.log('[RZP][WEBHOOK][RX]', { headers: req.headers, body: req.body });
     const crypto = require('crypto');
     const signature = req.headers['x-razorpay-signature'];
     if (typeof signature !== 'string') return res.status(401).json({ error: 'Unauthorized' });
@@ -106,8 +106,9 @@ router.post('/razorpay', express.raw({ type: '*/*' }), async (req, res, next) =>
       console.warn('[RZP][WEBHOOK][SIG_MISMATCH]');
       return res.status(401).json({ error: 'Invalid signature' });
     }
-
+    console.log('[RZP][WEBHOOK][SIG_OK]');
     const payload = JSON.parse(raw.toString('utf8'));
+    console.log('[RZP][WEBHOOK][PAYLOAD]', payload);
     const event = payload?.event;
     const entity = payload?.payload?.payment?.entity || payload?.payload?.order?.entity;
     const orderId = entity?.order_id || payload?.payload?.order?.entity?.id;

@@ -45,7 +45,7 @@ app.use(cors({
   credentials: true
 }));
 // Ensure Razorpay webhook receives raw body for HMAC verification BEFORE JSON parsing
-// Leave route-level raw body parsing in webhook.routes.js; remove global duplicate to avoid confusion
+app.use('/api/webhooks/razorpay', express.raw({ type: '*/*' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
