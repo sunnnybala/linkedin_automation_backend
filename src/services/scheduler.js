@@ -78,7 +78,7 @@ async function runDueSchedules() {
     const start = Date.now();
     try {
       console.log('[SCHEDULER][TRIGGER][START]', { scheduleId: schedule.id, userId: user.id });
-      // Charge on success via n8n webhook. No pre-deduction here.
+      // Deduct credits after successful HTTP request to n8n
       const resp = await triggerN8n(schedule, user);
       console.log('[SCHEDULER][TRIGGER][RESP]', { status: resp.status, ok: resp.ok, data: resp.data });
       run.status = resp.ok ? 'success' : 'failed';
@@ -88,6 +88,14 @@ async function runDueSchedules() {
         console.log('[SCHEDULER][RUN][SUCCESS] scheduleId:', schedule.id, 'durationMs:', run.durationMs);
       }
       await run.save();
+      if (resp.ok) {
+        try {
+          await deductCreditsOrThrow(user.id, COST_PER_POST_CREDITS, 'POST', String(schedule.id));
+        } catch (e) {
+          console.warn('[SCHEDULER][DEDUCT][ERR]', e.message);
+          try { if (user.email) await sendCreditsDepletedEmail(user.email, user.name || 'there'); } catch (_) {}
+        }
+      }
     } catch (err) {
       run.status = 'failed';
       run.error = err.message;
@@ -133,6 +141,14 @@ async function runScheduleNow(scheduleId, userId) {
     run.response = resp.data;
     run.durationMs = Date.now() - start;
     await run.save();
+    if (resp.ok) {
+      try {
+        await deductCreditsOrThrow(user.id, COST_PER_POST_CREDITS, 'POST', String(schedule.id));
+      } catch (e) {
+        console.warn('[RUN_NOW][DEDUCT][ERR]', e.message);
+        try { if (user.email) await sendCreditsDepletedEmail(user.email, user.name || 'there'); } catch (_) {}
+      }
+    }
     return { ok: resp.ok, status: resp.status, data: resp.data };
   } catch (err) {
     run.status = 'failed';

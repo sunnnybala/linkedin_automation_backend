@@ -10,14 +10,7 @@ router.post('/', async (req, res, next) => {
   try {
     const { content, scheduledAt } = req.body;
     
-    // Deduct credits for immediate publish (no schedule)
-    if (!scheduledAt) {
-      await deductCreditsOrThrow(req.user.id, COST_PER_POST_CREDITS, 'POST', undefined, async (user) => {
-        if (user.email) {
-          try { await sendCreditsDepletedEmail(user.email, user.name || 'there'); } catch (_) {}
-        }
-      });
-    }
+    // Credits will be deducted after a successful HTTP trigger to n8n
 
     const post = await Post.create({
       content,
@@ -112,13 +105,8 @@ router.put('/:id', async (req, res, next) => {
     
     await post.save();
 
-    // If post is being published now, trigger n8n workflow
+    // If post is being published now, trigger n8n workflow (credits deducted after successful trigger)
     if (status === 'published') {
-      await deductCreditsOrThrow(req.user.id, COST_PER_POST_CREDITS, 'POST', String(post.id), async (user) => {
-        if (user.email) {
-          try { await sendCreditsDepletedEmail(user.email, user.name || 'there'); } catch (_) {}
-        }
-      });
       const user = await User.findByPk(req.user.id);
       console.log('[POSTS][TRIGGER][START]', { postId: post.id, userId: user.id });
       await triggerN8nWorkflow(post, user);
@@ -171,12 +159,7 @@ router.post('/:id/publish', async (req, res, next) => {
     post.publishedAt = new Date();
     await post.save();
 
-    // Trigger n8n workflow
-    await deductCreditsOrThrow(req.user.id, COST_PER_POST_CREDITS, 'POST', String(post.id), async (user) => {
-      if (user.email) {
-        try { await sendCreditsDepletedEmail(user.email, user.name || 'there'); } catch (_) {}
-      }
-    });
+    // Trigger n8n workflow (credits deducted after successful trigger)
     const user = await User.findByPk(req.user.id);
     await triggerN8nWorkflow(post, user);
 
@@ -218,6 +201,12 @@ async function triggerN8nWorkflow(post, user) {
       }
     });
     console.log('[POSTS][TRIGGER][RESP]', { status: response.status, data: response.data });
+    // Deduct credits immediately after successful HTTP request
+    await deductCreditsOrThrow(user.id, COST_PER_POST_CREDITS, 'POST', String(post.id), async (u) => {
+      if (u.email) {
+        try { await sendCreditsDepletedEmail(u.email, u.name || 'there'); } catch (_) {}
+      }
+    });
   } catch (error) {
     console.error('Error triggering n8n workflow:', error.message);
     throw error;

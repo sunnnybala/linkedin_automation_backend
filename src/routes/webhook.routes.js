@@ -48,16 +48,7 @@ router.post('/n8n', verifyWebhook, async (req, res, next) => {
         post.status = 'published';
         post.publishedAt = new Date();
         post.linkedInPostId = linkedInPostId || null;
-        // Charge credits on success if not already deducted
-        try {
-          const user = await User.findByPk(post.userId);
-          if (user) {
-            await deductCreditsOrThrow(user.id, COST_PER_POST_CREDITS, 'POST', String(post.id));
-            console.log('[WEBHOOK][CHARGED]', { userId: user.id, postId: post.id });
-          }
-        } catch (e) {
-          console.warn('[WEBHOOK][CHARGE_ON_SUCCESS][ERR]', e.message);
-        }
+        // Credits are now deducted at trigger-time; do not charge here
         break;
         
       case 'post.failed':
