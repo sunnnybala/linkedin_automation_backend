@@ -123,6 +123,10 @@ app.use('/api/schedules', authenticateJWT, scheduleRoutes);
 // Serves: https://<your-domain>/googlef89e836dbb5c82fa.html
 
 // Health check endpoint
+app.get('/healthexternal', (req, res) => {
+  console.log('[HEALTH][CHECK][EXTERNAL]');
+  res.status(200).json({ status: 'ok', timestamp: new Date() });
+});
 app.get('/health', (req, res) => {
   console.log('[HEALTH][CHECK]');
   res.status(200).json({ status: 'ok', timestamp: new Date() });
