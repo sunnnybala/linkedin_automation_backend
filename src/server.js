@@ -128,7 +128,6 @@ app.get('/healthexternal', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date() });
 });
 app.get('/health', (req, res) => {
-  console.log('[HEALTH][CHECK]');
   res.status(200).json({ status: 'ok', timestamp: new Date() });
 });
 
