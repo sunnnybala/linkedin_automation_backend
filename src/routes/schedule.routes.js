@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { Schedule } = require('../models');
-const { runScheduleNow } = require('../services/scheduler');
+const { runScheduleNow, computeNextRun } = require('../services/scheduler');
 
 // Create a schedule
 router.post('/', async (req, res, next) => {
@@ -61,10 +61,21 @@ router.put('/:id', async (req, res, next) => {
     const { topics, cadence, timezone, isActive, nextRunAt } = req.body;
     if (Array.isArray(topics)) schedule.topics = topics;
     const allowed = ['daily','every_3_days','weekly','every_2_weeks'];
-    if (cadence && allowed.includes(cadence)) schedule.cadence = cadence;
+    const cadenceChanged = cadence && allowed.includes(cadence) && cadence !== schedule.cadence;
+    const timezoneChanged = typeof timezone === 'string' && timezone !== schedule.timezone;
+    const isActiveChanged = typeof isActive === 'boolean' && isActive !== schedule.isActive;
+
+    if (cadenceChanged) schedule.cadence = cadence;
     if (typeof timezone === 'string') schedule.timezone = timezone;
     if (typeof isActive === 'boolean') schedule.isActive = isActive;
     if (nextRunAt) schedule.nextRunAt = new Date(nextRunAt);
+
+    // If cadence/timezone/isActive changed and user didn't explicitly set nextRunAt,
+    // recompute nextRunAt based on lastRunAt or now so schedule remains consistent.
+    if (!nextRunAt && (cadenceChanged || timezoneChanged || isActiveChanged)) {
+      const base = schedule.lastRunAt || new Date();
+      schedule.nextRunAt = computeNextRun(base, schedule.cadence);
+    }
 
     await schedule.save();
     console.log('[SCHEDULE][UPDATE][OK] id:', schedule.id);

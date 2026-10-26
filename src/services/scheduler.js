@@ -159,6 +159,6 @@ async function runScheduleNow(scheduleId, userId) {
   }
 }
 
-module.exports = { startScheduler, runScheduleNow };
+module.exports = { startScheduler, runScheduleNow, computeNextRun };
 
 
